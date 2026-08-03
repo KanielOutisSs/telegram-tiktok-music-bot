@@ -1,8 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: telegram-tiktok-music-bot
     runtime: docker
+    plan: free
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: BOT_TOKEN
         sync: false
