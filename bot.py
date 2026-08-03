@@ -153,7 +153,7 @@ async def handle_message(
     try:
         await context.bot.send_chat_action(
             chat_id=message.chat_id,
-            action=ChatAction.UPLOAD_AUDIO,
+            action=ChatAction.UPLOAD_DOCUMENT,
         )
 
         async with DOWNLOAD_SEMAPHORE:
