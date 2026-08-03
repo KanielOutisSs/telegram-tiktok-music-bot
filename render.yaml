@@ -1,0 +1,10 @@
+services:
+  - type: worker
+    name: telegram-tiktok-music-bot
+    runtime: docker
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: MAX_OUTPUT_MB
+        value: "45"
