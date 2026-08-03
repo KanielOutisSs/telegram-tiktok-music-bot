@@ -42,7 +42,13 @@ def extract_url(text: str) -> str | None:
     if not match:
         return None
 
-    return match.group(0).rstrip(".,);]}>\"'")
+    url = match.group(0).rstrip(".,);]}>\"'")
+    
+    # Xoá phần query string (?is_from_webapp=...) để link sạch hơn
+    if "tiktok.com" in url.lower():
+        url = url.split("?")[0]
+
+    return url
 
 
 def is_tiktok_url(url: str) -> bool:
@@ -79,6 +85,11 @@ def download_audio(url: str, output_dir: str) -> tuple[Path, dict]:
         "no_warnings": True,
         "socket_timeout": 30,
         "retries": 3,
+        "extractor_args": {
+            "tiktok": {
+                "app_info": [""],
+            }
+        },
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
