@@ -281,9 +281,14 @@ async def main() -> None:
         await asyncio.Event().wait()
 
     finally:
-        await telegram_app.updater.stop()
-        await telegram_app.stop()
-        await telegram_app.shutdown()
+        if telegram_app.updater and telegram_app.updater.running:
+            await telegram_app.updater.stop()
+        if telegram_app.running:
+            await telegram_app.stop()
+        try:
+            await telegram_app.shutdown()
+        except Exception:
+            pass
         await web_runner.cleanup()
 
 
