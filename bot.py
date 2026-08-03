@@ -1,244 +1,291 @@
+import asyncio
 import logging
 import os
-import sys
 import re
-import asyncio
+import shutil
 import tempfile
-import yt_dlp
-import time
+from pathlib import Path
 from urllib.parse import urlparse
+
+import yt_dlp
+from aiohttp import web
 from telegram import Update
-from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
-
-try:
-    MAX_OUTPUT_MB = float(os.environ.get("MAX_OUTPUT_MB", 45))
-except ValueError:
-    MAX_OUTPUT_MB = 45.0
-
-download_semaphore = None
-user_cooldowns = {}
-
-# Cấu hình logging để dễ dàng theo dõi lỗi và hoạt động của bot
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+from telegram.constants import ChatAction
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
 )
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+PORT = int(os.getenv("PORT", "10000"))
+
+MAX_OUTPUT_MB = int(os.getenv("MAX_OUTPUT_MB", "45"))
+MAX_OUTPUT_BYTES = MAX_OUTPUT_MB * 1024 * 1024
+MAX_DURATION_SECONDS = 10 * 60
+
+DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
+
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
+
 logger = logging.getLogger(__name__)
 
-class YTDLPLogger:
-    def debug(self, msg):
-        pass
 
-    def warning(self, msg):
-        pass
+def extract_url(text: str) -> str | None:
+    match = re.search(r"https?://[^\s]+", text)
 
-    def error(self, msg):
-        logger.error(msg)
+    if not match:
+        return None
 
-def duration_filter(info_dict, *, incomplete):
-    duration = info_dict.get('duration')
-    if duration and duration > 600:
-        return "Video dài hơn 10 phút, không được hỗ trợ."
-    return None
+    return match.group(0).rstrip(".,);]}>\"'")
 
-def _download_audio_sync(url: str, temp_dir: str):
-    """Hàm đồng bộ để tải audio bằng yt-dlp."""
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'socket_timeout': 15,
-        'retries': 3,
-        'logger': YTDLPLogger(),
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'keepvideo': False,
-        'match_filter': duration_filter,
-    }
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        
-        # Lấy tên file gốc do yt-dlp tải (ví dụ: video123.m4a)
-        original_filename = ydl.prepare_filename(info)
-        
-        # Xác định chính xác tên file MP3 sau khi FFmpeg xử lý
-        base_name = os.path.splitext(original_filename)[0]
-        mp3_filename = f"{base_name}.mp3"
-        
-        # Nếu không tìm thấy file MP3 thì raise lỗi rõ ràng
-        if not os.path.exists(mp3_filename):
-            raise FileNotFoundError(f"Không tìm thấy file MP3 đầu ra tại: {mp3_filename}")
-            
-        return mp3_filename, info
 
-async def download_audio_async(url: str, temp_dir_name: str):
-    """Hàm bất đồng bộ tải audio, truyền sẵn tên thư mục tạm."""
-    filename, info = await asyncio.to_thread(_download_audio_sync, url, temp_dir_name)
-    return filename, info
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hàm xử lý khi người dùng gõ lệnh /start"""
+def is_tiktok_url(url: str) -> bool:
     try:
-        welcome_message = "🎵 Gửi link TikTok, tôi sẽ tách nhạc thành MP3."
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_message)
-        logger.info(f"Đã gửi tin nhắn chào mừng cho chat_id: {update.effective_chat.id}")
-    except Exception as e:
-        logger.error(f"Lỗi khi xử lý lệnh /start: {e}")
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Xử lý tin nhắn văn bản từ người dùng"""
-    global download_semaphore
-    if download_semaphore is None:
-        download_semaphore = asyncio.Semaphore(2)
+        return (
+            parsed.scheme in {"http", "https"}
+            and (
+                hostname == "tiktok.com"
+                or hostname.endswith(".tiktok.com")
+            )
+        )
+    except ValueError:
+        return False
 
-    text = update.message.text
-    if not text:
+
+def safe_filename(title: str) -> str:
+    title = re.sub(r'[\\/:*?"<>|]', "", title)
+    title = re.sub(r"\s+", " ", title).strip()
+
+    return title[:80] or "tiktok-audio"
+
+
+def download_audio(url: str, output_dir: str) -> tuple[Path, dict]:
+    output_template = str(Path(output_dir) / "%(id)s.%(ext)s")
+
+    options = {
+        "format": "bestaudio/best",
+        "outtmpl": output_template,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "retries": 3,
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
+    }
+
+    with yt_dlp.YoutubeDL(options) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+        duration = info.get("duration")
+
+        if duration and duration > MAX_DURATION_SECONDS:
+            raise ValueError("VIDEO_TOO_LONG")
+
+        info = ydl.extract_info(url, download=True)
+
+    mp3_files = list(Path(output_dir).glob("*.mp3"))
+
+    if not mp3_files:
+        raise FileNotFoundError("Không tìm thấy file MP3 đầu ra.")
+
+    return mp3_files[0], info
+
+
+async def start_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    await update.effective_message.reply_text(
+        "🎵 Gửi link TikTok, tôi sẽ tách âm thanh và trả lại MP3."
+    )
+
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    await update.effective_message.reply_text(
+        "Cách dùng:\n"
+        "1. Sao chép link video TikTok công khai.\n"
+        "2. Gửi link vào đây.\n"
+        "3. Chờ bot trả lại file MP3.\n\n"
+        "Chỉ tải nội dung bạn sở hữu hoặc được phép sử dụng."
+    )
+
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+
+    if not message or not message.text:
         return
-        
-    user_id = update.effective_user.id
-    now = time.monotonic()
-    
-    # Dọn dẹp cooldown cũ để tránh rò rỉ bộ nhớ
-    expired_users = [uid for uid, t in user_cooldowns.items() if now - t > 15]
-    for uid in expired_users:
-        del user_cooldowns[uid]
-        
-    # Kiểm tra chống spam (cooldown 15 giây)
-    if user_id in user_cooldowns:
-        wait_time = int(15 - (now - user_cooldowns[user_id]))
-        if wait_time > 0:
-            await update.message.reply_text(f"⏳ Bạn thao tác quá nhanh. Vui lòng đợi {wait_time} giây trước khi gửi link tiếp theo.")
+
+    url = extract_url(message.text)
+
+    if not url:
+        await message.reply_text("❌ Hãy gửi một link TikTok.")
+        return
+
+    if not is_tiktok_url(url):
+        await message.reply_text("❌ Hiện bot chỉ hỗ trợ link TikTok.")
+        return
+
+    status = await message.reply_text("⏳ Đang tải và tách âm thanh...")
+    temp_dir = tempfile.mkdtemp(prefix="tiktok_audio_")
+
+    try:
+        await context.bot.send_chat_action(
+            chat_id=message.chat_id,
+            action=ChatAction.UPLOAD_AUDIO,
+        )
+
+        async with DOWNLOAD_SEMAPHORE:
+            mp3_path, info = await asyncio.wait_for(
+                asyncio.to_thread(download_audio, url, temp_dir),
+                timeout=180,
+            )
+
+        if mp3_path.stat().st_size > MAX_OUTPUT_BYTES:
+            await status.edit_text(
+                f"❌ File MP3 vượt quá giới hạn {MAX_OUTPUT_MB} MB."
+            )
             return
 
-    # Tìm URL đầu tiên trong tin nhắn
-    match = re.search(r'(https?://[^\s]+)', text)
-    if not match:
-        await update.message.reply_text("Vui lòng gửi link TikTok để tôi có thể tách nhạc nhé.")
-        return
+        title = safe_filename(info.get("title") or "TikTok Audio")
+        uploader = str(
+            info.get("uploader")
+            or info.get("creator")
+            or "TikTok"
+        )[:64]
 
-    url = match.group(1)
-    
-    # Dùng urllib.parse.urlparse để phân tích URL và lấy hostname
-    parsed = urlparse(url)
-    hostname = parsed.hostname
+        duration = info.get("duration")
 
-    # Chỉ chấp nhận hostname thuộc tiktok.com hoặc tên miền con của tiktok.com
-    # (bao gồm www.tiktok.com, vm.tiktok.com, vt.tiktok.com...)
-    if hostname == "tiktok.com" or (hostname and hostname.endswith(".tiktok.com")):
-        # Ghi nhận thời gian gửi link hợp lệ để chống spam
-        user_cooldowns[user_id] = now
-        
-        # Kiểm tra trạng thái semaphore để báo xếp hàng nếu bot bận
-        if download_semaphore.locked():
-            status_msg = await update.message.reply_text("⏳ Hệ thống đang bận, yêu cầu của bạn đang được xếp hàng chờ...")
+        with mp3_path.open("rb") as audio_file:
+            await message.reply_audio(
+                audio=audio_file,
+                title=title,
+                performer=uploader,
+                duration=int(duration) if duration else None,
+                filename=f"{title}.mp3",
+                caption="🎵 Đã tách âm thanh thành công.",
+            )
+
+        await status.delete()
+
+    except asyncio.TimeoutError:
+        await status.edit_text(
+            "❌ Video xử lý quá lâu. Hãy thử video ngắn hơn."
+        )
+
+    except ValueError as error:
+        if str(error) == "VIDEO_TOO_LONG":
+            await status.edit_text(
+                "❌ Video dài quá 10 phút nên bot không xử lý."
+            )
         else:
-            status_msg = await update.message.reply_text("⏳ Đang tải và tách nhạc...")
-            
-        temp_dir = tempfile.TemporaryDirectory()
-        try:
-            async with download_semaphore:
-                # Nếu đã từng báo xếp hàng, cập nhật lại tin nhắn khi tới lượt
-                if status_msg.text != "⏳ Đang tải và tách nhạc...":
-                    try:
-                        await status_msg.edit_text("⏳ Đang tải và tách nhạc...")
-                    except Exception:
-                        pass
-                    
-                # Bọc quá trình tải bằng timeout 180 giây
-                filename, info = await asyncio.wait_for(
-                    download_audio_async(url, temp_dir.name), timeout=180.0
-                )
-            
-            # Kiểm tra kích thước file đầu ra so với cấu hình MAX_OUTPUT_MB
-            file_size_mb = os.path.getsize(filename) / (1024 * 1024)
-            if file_size_mb > MAX_OUTPUT_MB:
-                await status_msg.edit_text(f"❌ Kích thước file đầu ra ({file_size_mb:.1f}MB) vượt quá giới hạn cho phép ({MAX_OUTPUT_MB}MB).")
-                return
-            
-            # Lấy title, uploader và duration từ metadata yt-dlp
-            raw_title = info.get('title', 'Tiktok_Audio')
-            uploader = info.get('uploader', 'Unknown')
-            duration = info.get('duration', 0)
-            
-            # Làm sạch tên file, loại bỏ ký tự không hợp lệ
-            clean_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
-            
-            # Giới hạn tên file không quá 80 ký tự
-            if len(clean_title) > 80:
-                clean_title = clean_title[:80]
-            display_filename = f"{clean_title}.mp3"
-            
-            # Gửi file âm thanh về Telegram
-            with open(filename, 'rb') as audio_file:
-                await update.message.reply_audio(
-                    audio=audio_file,
-                    filename=display_filename,
-                    caption=f"🎵 {raw_title}\n👤 {uploader}",
-                    title=clean_title,
-                    performer=uploader,
-                    duration=duration
-                )
-            
-            # Xóa tin nhắn trạng thái sau khi đã gửi file thành công
-            try:
-                await status_msg.delete()
-            except Exception:
-                pass
-            
-        except asyncio.TimeoutError:
-            try:
-                await status_msg.edit_text("❌ Quá thời gian xử lý (180 giây). Vui lòng thử lại với video ngắn hơn.")
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                if "Video dài hơn 10 phút" in str(e):
-                    await status_msg.edit_text("❌ Video dài hơn 10 phút, bot không hỗ trợ tải.")
-                else:
-                    logger.exception(f"Lỗi hệ thống khi xử lý: {e}")
-                    await status_msg.edit_text("❌ Rất tiếc, hệ thống đang gặp sự cố khi tải nhạc từ link này. Vui lòng thử lại sau nhé!")
-            except Exception:
-                pass
-        finally:
-            # Luôn đảm bảo xóa thư mục tạm dù thành công hay thất bại
-            if temp_dir:
-                temp_dir.cleanup()
-    else:
-        await update.message.reply_text("Xin lỗi, hiện tại bot chỉ hỗ trợ xử lý link từ TikTok.")
+            logger.exception("Value error")
+            await status.edit_text("❌ Dữ liệu video không hợp lệ.")
 
-def main():
-    """Hàm chính khởi chạy bot"""
-    # Lấy token từ biến môi trường
-    token = os.environ.get("BOT_TOKEN")
-    
-    if not token:
-        logger.error("Biến môi trường 'BOT_TOKEN' chưa được thiết lập. Bot không thể khởi động.")
-        sys.exit(1)
+    except yt_dlp.utils.DownloadError:
+        logger.exception("yt-dlp download error")
+        await status.edit_text(
+            "❌ Không tải được video. Video có thể riêng tư, "
+            "đã bị xóa hoặc TikTok đang chặn yêu cầu."
+        )
+
+    except Exception:
+        logger.exception("Unexpected processing error")
+        await status.edit_text("❌ Có lỗi xảy ra khi xử lý video.")
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def health_handler(request: web.Request) -> web.Response:
+    return web.json_response(
+        {
+            "status": "ok",
+            "service": "telegram-tiktok-music-bot",
+        }
+    )
+
+
+async def start_web_server() -> web.AppRunner:
+    app = web.Application()
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/health", health_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(
+        runner,
+        host="0.0.0.0",
+        port=PORT,
+    )
+
+    await site.start()
+    logger.info("Health server running on port %s", PORT)
+
+    return runner
+
+
+async def main() -> None:
+    if not BOT_TOKEN:
+        raise RuntimeError("Chưa đặt biến môi trường BOT_TOKEN.")
+
+    telegram_app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(4)
+        .build()
+    )
+
+    telegram_app.add_handler(CommandHandler("start", start_command))
+    telegram_app.add_handler(CommandHandler("help", help_command))
+    telegram_app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message,
+        )
+    )
+
+    web_runner = await start_web_server()
 
     try:
-        # Khởi tạo Application (cách dùng chuẩn của v20+)
-        application = Application.builder().token(token).build()
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.updater.start_polling(
+            drop_pending_updates=True
+        )
 
-        # Đăng ký command handler
-        start_handler = CommandHandler('start', start)
-        application.add_handler(start_handler)
+        logger.info("Telegram bot is running.")
 
-        # Đăng ký handler xử lý tin nhắn văn bản (bỏ qua commands)
-        text_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
-        application.add_handler(text_handler)
+        await asyncio.Event().wait()
 
-        # Chạy bot (long polling)
-        logger.info("Bot đang chạy... Bấm Ctrl+C để dừng.")
-        application.run_polling()
+    finally:
+        await telegram_app.updater.stop()
+        await telegram_app.stop()
+        await telegram_app.shutdown()
+        await web_runner.cleanup()
 
-    except Exception as e:
-        logger.critical(f"Lỗi nghiêm trọng không thể khởi động bot: {e}")
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
