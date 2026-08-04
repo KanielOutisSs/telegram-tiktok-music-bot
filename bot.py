@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import uuid
+import yt_dlp
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction, ParseMode
