@@ -269,28 +269,32 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     webhook_url = os.environ.get("WEBHOOK_URL")
-    if webhook_url:
-        logger.info(f"Starting webhook on port {PORT} with URL {webhook_url}")
+    
+    async def run_server():
+        app = web.Application()
+        app.router.add_get("/", health_check)
+        app.router.add_get("/health", health_check)
         
-        async def run_server():
-            app = web.Application()
-            app.router.add_get("/", health_check)
-            app.router.add_get("/health", health_check)
-            
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, "0.0.0.0", PORT)
-            await site.start()
-            
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        logger.info(f"Dummy web server started on port {PORT} to satisfy Render health check")
+        
+        await application.initialize()
+        if webhook_url:
+            logger.info(f"Starting webhook with URL {webhook_url}")
             await application.bot.set_webhook(url=webhook_url)
-            await application.initialize()
             await application.start()
-            await asyncio.Event().wait()
+        else:
+            logger.info("Starting polling")
+            await application.bot.delete_webhook()
+            await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            await application.start()
             
-        asyncio.run(run_server())
-    else:
-        logger.info("Starting polling")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        await asyncio.Event().wait()
+        
+    asyncio.run(run_server())
 
 if __name__ == "__main__":
     main()
