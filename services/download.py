@@ -19,7 +19,10 @@ def build_download_options(output_dir: str, media_type: str) -> dict:
         "retries": 3,
         "extractor_retries": 3,
         "concurrent_fragment_downloads": 4,
-        "extractor_args": {"tiktok": {"app_info": [""]}},
+        "extractor_args": {
+            "tiktok": {"app_info": [""]},
+            "youtube": {"player_client": ["android", "web"]},
+        },
         "http_headers": BASE_HTTP_HEADERS,
     }
 
@@ -72,7 +75,11 @@ def download_media_from_info(info: dict, output_dir: str, media_type: str) -> tu
     for attempt in range(3):
         try:
             with yt_dlp.YoutubeDL(options) as ydl:
-                downloaded_info = ydl.process_ie_result(info.copy(), download=True)
+                # Lấy lại link gốc để extract mới hoàn toàn, tránh lỗi hết hạn link CDN của TikTok
+                url = info.get("webpage_url")
+                if not url:
+                    raise ValueError("Không tìm thấy webpage_url trong info")
+                downloaded_info = ydl.extract_info(url, download=True)
                 
             downloaded_files = list(Path(output_dir).glob("*"))
             if not downloaded_files:
