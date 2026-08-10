@@ -75,7 +75,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         info = await asyncio.wait_for(
             asyncio.to_thread(extract_metadata, url),
-            timeout=30
+            timeout=60
         )
     except Exception as error:
         logger.error("Metadata error: %s", error)
