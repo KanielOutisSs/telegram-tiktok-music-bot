@@ -6,7 +6,7 @@ import tempfile
 import uuid
 import yt_dlp
 from aiohttp import web
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -84,6 +84,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if metadata_failed:
         await status.edit_text("❌ Không lấy được thông tin video từ liên kết này.")
         return
+        
+    if info.get("is_photo_slide"):
+        images = info.get("images", [])
+        if images:
+            # Chia ảnh thành các chunk 10 ảnh (giới hạn của Telegram)
+            for i in range(0, len(images), 10):
+                chunk = images[i:i+10]
+                media_group = [InputMediaPhoto(media=img) for img in chunk]
+                try:
+                    await message.reply_media_group(media=media_group)
+                except Exception as e:
+                    logger.error("Error sending media group: %s", e)
+            
+            if info.get("music"):
+                try:
+                    await message.reply_audio(
+                        audio=info["music"],
+                        title=info["title"],
+                        performer=info["uploader"],
+                        caption="🎵 Nhạc nền của Album"
+                    )
+                except Exception as e:
+                    logger.error("Error sending music: %s", e)
+                    
+            await status.delete()
+            return
 
     request_id = str(uuid.uuid4())[:8]
     context.user_data[request_id] = {
