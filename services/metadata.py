@@ -19,6 +19,7 @@ def extract_metadata(url: str) -> dict:
         "socket_timeout": 30,
         "retries": 3,
         "extractor_retries": 3,
+        "cachedir": False,
         "extractor_args": {
             "tiktok": {"app_info": [""]},
             "youtube": {"player_client": ["android", "web"]},

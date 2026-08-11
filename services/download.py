@@ -19,6 +19,7 @@ def build_download_options(output_dir: str, media_type: str) -> dict:
         "retries": 3,
         "extractor_retries": 3,
         "concurrent_fragment_downloads": 4,
+        "cachedir": False,
         "extractor_args": {
             "tiktok": {"app_info": [""]},
             "youtube": {"player_client": ["android", "web"]},
