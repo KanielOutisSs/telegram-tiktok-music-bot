@@ -6,7 +6,7 @@ import tempfile
 import uuid
 import yt_dlp
 from aiohttp import web
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -26,6 +26,8 @@ from services.download import download_media_from_info
 from services.converter import extract_ringtone
 
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
+PENDING_REQUESTS = {}
+BOT_APP = None
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -117,6 +119,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "url": info.get("webpage_url") or url,
         "info": info
     }
+    PENDING_REQUESTS[request_id] = {
+        "user_id": update.effective_user.id,
+        "chat_id": update.effective_chat.id,
+        "url": info.get("webpage_url") or url,
+        "info": info
+    }
+    
+    web_app_url = os.environ.get("WEB_APP_URL") or (os.environ.get("WEBHOOK_URL", "").rsplit("/", 1)[0] + "/webapp/") if os.environ.get("WEBHOOK_URL") else ""
     
     keyboard = InlineKeyboardMarkup(
         [
@@ -129,6 +139,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}?request_id={request_id}")) if "http" in web_app_url else InlineKeyboardButton("✂️ Cắt Nhạc (Thiếu URL)", callback_data="missing_url"),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -174,6 +185,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
 
     data = query.data
+    if data == "missing_url":
+        await query.answer("Bot chưa được cấu hình WEB_APP_URL để mở tính năng này.", show_alert=True)
+        return
+
     if data == "cancel":
         try:
             await query.message.delete()
@@ -286,9 +301,73 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def health_check(request: web.Request) -> web.Response:
     return web.Response(text="Bot is running!")
 
+async def api_info(request: web.Request) -> web.Response:
+    request_id = request.query.get("request_id")
+    if not request_id or request_id not in PENDING_REQUESTS:
+        return web.json_response({"error": "Không tìm thấy thông tin video"})
+    info = PENDING_REQUESTS[request_id]["info"]
+    return web.json_response({
+        "title": info.get("title", "Video"),
+        "duration": info.get("duration", 0)
+    })
+
+async def process_cut_audio(chat_id, cached_info, start_time, end_time):
+    if not BOT_APP: return
+    bot = BOT_APP.bot
+    status_msg = await bot.send_message(chat_id=chat_id, text="⏳ Đang tải nhạc để cắt...")
+    temp_dir = tempfile.mkdtemp(prefix="media_bot_cut_")
+    try:
+        async with DOWNLOAD_SEMAPHORE:
+            from services.download import download_media_from_info
+            file_path, downloaded_info = await asyncio.wait_for(
+                asyncio.to_thread(download_media_from_info, cached_info, temp_dir, "mp3"),
+                timeout=180
+            )
+        if not file_path.exists(): raise FileNotFoundError("Không tải được file gốc.")
+        
+        output_file_path = Path(temp_dir) / f"cut_{uuid.uuid4().hex}.mp3"
+        await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="🎧 Đang tiến hành cắt đoạn nhạc...")
+        
+        from services.converter import cut_audio
+        await asyncio.to_thread(cut_audio, file_path, output_file_path, start_time, end_time)
+        
+        title = safe_filename(downloaded_info.get("title") or "Media")
+        duration = end_time - start_time
+        
+        await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="📤 Đang gửi file đã cắt...")
+        
+        with output_file_path.open("rb") as media_file:
+            await bot.send_audio(
+                chat_id=chat_id, audio=media_file, title=f"{title} (Cut)",
+                duration=int(duration), caption=f"✂️ Đã cắt từ {start_time}s đến {end_time}s"
+            )
+        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+    except Exception as e:
+        logger.error(f"Cut processing error: {e}")
+        await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Có lỗi xảy ra khi cắt nhạc.")
+    finally:
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+async def api_cut(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        request_id = data.get("request_id")
+        if not request_id or request_id not in PENDING_REQUESTS:
+            return web.json_response({"error": "Yêu cầu đã hết hạn", "success": False})
+        
+        req_data = PENDING_REQUESTS[request_id]
+        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0))))
+        return web.json_response({"success": True})
+    except Exception as e:
+        logger.error(f"API cut error: {e}")
+        return web.json_response({"error": str(e), "success": False})
+
 # --- MAIN LOOP ---
 def main() -> None:
+    global BOT_APP
     application = Application.builder().token(BOT_TOKEN).build()
+    BOT_APP = application
     
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
@@ -301,6 +380,9 @@ def main() -> None:
         app = web.Application()
         app.router.add_get("/", health_check)
         app.router.add_get("/health", health_check)
+        app.router.add_get("/api/info", api_info)
+        app.router.add_post("/api/cut", api_cut)
+        app.router.add_static("/webapp/", path="webapp", name="webapp")
         
         runner = web.AppRunner(app)
         await runner.setup()
