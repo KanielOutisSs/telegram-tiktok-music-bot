@@ -176,6 +176,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await status.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    audio = message.audio or message.voice or message.document
+    if not audio:
+        return
+
+    if getattr(audio, "file_size", 0) > 20 * 1024 * 1024:
+        await message.reply_text("❌ File quá lớn (vượt quá giới hạn 20MB mặc định của Telegram).")
+        return
+
+    request_id = str(uuid.uuid4())[:8]
+    title = getattr(audio, "title", None) or getattr(audio, "file_name", None) or "Audio Upload"
+    duration = getattr(audio, "duration", 0)
+
+    if duration == 0:
+        duration = 300
+
+    info = {
+        "title": title,
+        "duration": duration,
+        "uploader": update.effective_user.first_name,
+    }
+
+    PENDING_REQUESTS[request_id] = {
+        "user_id": update.effective_user.id,
+        "chat_id": update.effective_chat.id,
+        "source": "telegram",
+        "file_id": audio.file_id,
+        "info": info
+    }
+
+    web_app_url = os.environ.get("WEB_APP_URL") or (os.environ.get("WEBHOOK_URL", "").rsplit("/", 1)[0] + "/webapp/") if os.environ.get("WEBHOOK_URL") else ""
+    
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}?request_id={request_id}")) if "http" in web_app_url else InlineKeyboardButton("✂️ Cắt Nhạc (Thiếu URL)", callback_data="missing_url"),
+                InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
+            ]
+        ]
+    )
+
+    m, s = divmod(duration, 60)
+    duration_str = f"{m}:{s:02d}"
+    text = (
+        f"🎵 <b>{safe_filename(title)}</b>\n"
+        f"⏱ Thời lượng: {duration_str}\n\n"
+        f"👇 Chọn nút bên dưới để cắt nhạc:"
+    )
+
+    await message.reply_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
 
@@ -311,19 +364,26 @@ async def api_info(request: web.Request) -> web.Response:
         "duration": info.get("duration", 0)
     })
 
-async def process_cut_audio(chat_id, cached_info, start_time, end_time):
+async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=None, file_id=None):
     if not BOT_APP: return
     bot = BOT_APP.bot
-    status_msg = await bot.send_message(chat_id=chat_id, text="⏳ Đang tải nhạc để cắt...")
+    status_msg = await bot.send_message(chat_id=chat_id, text="⏳ Đang chuẩn bị nhạc để cắt...")
     temp_dir = tempfile.mkdtemp(prefix="media_bot_cut_")
     try:
-        async with DOWNLOAD_SEMAPHORE:
-            from services.download import download_media_from_info
-            file_path, downloaded_info = await asyncio.wait_for(
-                asyncio.to_thread(download_media_from_info, cached_info, temp_dir, "mp3"),
-                timeout=180
-            )
-        if not file_path.exists(): raise FileNotFoundError("Không tải được file gốc.")
+        if source == "telegram" and file_id:
+            input_file_path = Path(temp_dir) / f"input_{uuid.uuid4().hex}.mp3"
+            tg_file = await bot.get_file(file_id)
+            await tg_file.download_to_drive(input_file_path)
+            file_path = input_file_path
+            downloaded_info = cached_info
+        else:
+            async with DOWNLOAD_SEMAPHORE:
+                from services.download import download_media_from_info
+                file_path, downloaded_info = await asyncio.wait_for(
+                    asyncio.to_thread(download_media_from_info, cached_info, temp_dir, "mp3"),
+                    timeout=180
+                )
+            if not file_path.exists(): raise FileNotFoundError("Không tải được file gốc.")
         
         output_file_path = Path(temp_dir) / f"cut_{uuid.uuid4().hex}.mp3"
         await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="🎧 Đang tiến hành cắt đoạn nhạc...")
@@ -357,7 +417,7 @@ async def api_cut(request: web.Request) -> web.Response:
             return web.json_response({"error": "Yêu cầu đã hết hạn", "success": False})
         
         req_data = PENDING_REQUESTS[request_id]
-        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0))))
+        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0)), req_data.get("source"), req_data.get("file_id")))
         return web.json_response({"success": True})
     except Exception as e:
         logger.error(f"API cut error: {e}")
@@ -372,6 +432,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE | filters.Document.AUDIO, handle_audio))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     webhook_url = os.environ.get("WEBHOOK_URL")
