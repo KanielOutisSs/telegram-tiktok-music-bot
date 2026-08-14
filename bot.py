@@ -368,13 +368,16 @@ async def api_info(request: web.Request) -> web.Response:
         "duration": info.get("duration", 0)
     })
 
-async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=None, file_id=None):
+async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=None, file_id=None, downloaded_file=None):
     if not BOT_APP: return
     bot = BOT_APP.bot
     status_msg = await bot.send_message(chat_id=chat_id, text="⏳ Đang chuẩn bị nhạc để cắt...")
     temp_dir = tempfile.mkdtemp(prefix="media_bot_cut_")
     try:
-        if source == "telegram" and file_id:
+        if downloaded_file and Path(downloaded_file).exists():
+            file_path = Path(downloaded_file)
+            downloaded_info = cached_info
+        elif source == "telegram" and file_id:
             input_file_path = Path(temp_dir) / f"input_{uuid.uuid4().hex}.mp3"
             tg_file = await bot.get_file(file_id)
             await tg_file.download_to_drive(input_file_path)
@@ -413,6 +416,42 @@ async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=N
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+async def api_audio(request: web.Request) -> web.Response:
+    request_id = request.query.get("request_id")
+    if not request_id or request_id not in PENDING_REQUESTS:
+        return web.Response(status=404, text="Không tìm thấy yêu cầu")
+    
+    req_data = PENDING_REQUESTS[request_id]
+    
+    if "downloaded_file" in req_data and Path(req_data["downloaded_file"]).exists():
+        return web.FileResponse(req_data["downloaded_file"])
+    
+    temp_dir = tempfile.mkdtemp(prefix="media_bot_audio_")
+    try:
+        if req_data.get("source") == "telegram":
+            file_id = req_data["file_id"]
+            if not BOT_APP: raise ValueError("Bot app not initialized")
+            tg_file = await BOT_APP.bot.get_file(file_id)
+            input_file_path = Path(temp_dir) / f"input_{uuid.uuid4().hex}.mp3"
+            await tg_file.download_to_drive(input_file_path)
+            req_data["downloaded_file"] = str(input_file_path)
+            return web.FileResponse(input_file_path)
+        else:
+            cached_info = req_data["info"]
+            async with DOWNLOAD_SEMAPHORE:
+                from services.download import download_media_from_info
+                file_path, downloaded_info = await asyncio.wait_for(
+                    asyncio.to_thread(download_media_from_info, cached_info, temp_dir, "mp3"),
+                    timeout=180
+                )
+            if not file_path.exists():
+                return web.Response(status=500, text="Lỗi tải file")
+            req_data["downloaded_file"] = str(file_path)
+            return web.FileResponse(file_path)
+    except Exception as e:
+        logger.error(f"API audio error: {e}")
+        return web.Response(status=500, text=str(e))
+
 async def api_cut(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -421,7 +460,7 @@ async def api_cut(request: web.Request) -> web.Response:
             return web.json_response({"error": "Yêu cầu đã hết hạn", "success": False})
         
         req_data = PENDING_REQUESTS[request_id]
-        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0)), req_data.get("source"), req_data.get("file_id")))
+        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0)), req_data.get("source"), req_data.get("file_id"), req_data.get("downloaded_file")))
         return web.json_response({"success": True})
     except Exception as e:
         logger.error(f"API cut error: {e}")
@@ -446,6 +485,7 @@ def main() -> None:
         app.router.add_get("/", health_check)
         app.router.add_get("/health", health_check)
         app.router.add_get("/api/info", api_info)
+        app.router.add_get("/api/audio", api_audio)
         app.router.add_post("/api/cut", api_cut)
         app.router.add_static("/webapp/", path="webapp", name="webapp")
         

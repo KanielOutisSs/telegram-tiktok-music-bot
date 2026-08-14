@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cắt Nhạc</title>
+    <title>Cắt Nhạc (Waveform)</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
     <style>
         body {
             background-color: var(--tg-theme-bg-color, #1c1c1d);
@@ -15,86 +17,75 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             height: 100vh;
             box-sizing: border-box;
         }
         .container {
             width: 100%;
-            max-width: 400px;
+            max-width: 500px;
             background: var(--tg-theme-secondary-bg-color, #2c2c2e);
             border-radius: 16px;
             padding: 24px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-        h2 {
-            margin: 0 0 8px 0;
-            font-size: 18px;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        p.subtitle {
-            margin: 0 0 32px 0;
-            font-size: 14px;
-            color: var(--tg-theme-hint-color, #98989d);
-            text-align: center;
-        }
-        .slider-container {
             position: relative;
+        }
+        h2 { margin: 0 0 8px 0; font-size: 18px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        p.subtitle { margin: 0 0 24px 0; font-size: 14px; color: var(--tg-theme-hint-color, #98989d); text-align: center; }
+        
+        #waveform {
             width: 100%;
-            height: 40px;
+            height: 100px;
+            background: #222;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .controls-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-bottom: 24px;
+            gap: 15px;
         }
-        .track {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 100%;
-            height: 6px;
-            background: #444;
-            border-radius: 3px;
-        }
-        .range {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            height: 6px;
-            background: linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
-            border-radius: 3px;
-            pointer-events: none;
-        }
-        input[type=range] {
-            position: absolute;
-            width: 100%;
-            height: 40px;
-            top: 0;
-            left: 0;
-            margin: 0;
-            appearance: none;
-            background: transparent;
-            pointer-events: none;
-            z-index: 2;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            background: #fff;
+        
+        .btn-play {
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            pointer-events: auto;
+            border: none;
+            background: var(--tg-theme-button-color, #007aff);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             cursor: pointer;
-            margin-top: 0; /* needed for some browsers */
+            font-size: 16px;
+            flex-shrink: 0;
         }
+        
+        .zoom-control {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--tg-theme-hint-color, #98989d);
+        }
+        
+        .zoom-control input[type="range"] {
+            flex-grow: 1;
+        }
+
         .time-labels {
             display: flex;
             justify-content: space-between;
             font-size: 14px;
             font-weight: 500;
-            margin-bottom: 32px;
+            margin-bottom: 24px;
         }
+
         .btn {
             width: 100%;
             padding: 14px;
@@ -105,42 +96,59 @@
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
-            transition: opacity 0.2s;
         }
-        .btn:active {
-            opacity: 0.8;
+        .btn:disabled { background: #555; color: #999; cursor: not-allowed; }
+        
+        .loading-overlay {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--tg-theme-secondary-bg-color, #2c2c2e);
+            z-index: 10;
+            border-radius: 16px;
         }
-        .btn:disabled {
-            background: #555;
-            color: #999;
-            cursor: not-allowed;
+        
+        /* Spinner */
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top: 4px solid var(--tg-theme-button-color, #007aff);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
         }
-        .loader {
-            display: none;
-            margin-top: 20px;
-            text-align: center;
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2 id="title">Đang tải...</h2>
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="spinner"></div>
+            <div id="loadingText" style="font-weight: 500; font-size: 14px; text-align: center;">Đang chuẩn bị nhạc...<br><span style="font-size: 12px; color: var(--tg-theme-hint-color, #98989d);">Tải từ máy chủ về Web App có thể mất vài giây</span></div>
+        </div>
+
+        <h2 id="title">Đang kết nối...</h2>
         <p class="subtitle" id="duration">Vui lòng đợi</p>
         
-        <div class="slider-container">
-            <div class="track"></div>
-            <div class="range" id="rangeFill"></div>
-            <input type="range" id="startSlider" min="0" max="100" value="0">
-            <input type="range" id="endSlider" min="0" max="100" value="100">
+        <div id="waveform"></div>
+        
+        <div class="controls-row">
+            <button class="btn-play" id="playBtn" disabled>▶</button>
+            <div class="zoom-control">
+                <span>Zoom</span>
+                <input type="range" id="zoomSlider" min="10" max="1000" value="10">
+            </div>
         </div>
         
         <div class="time-labels">
-            <span id="startLabel">0:00</span>
-            <span id="endLabel">0:00</span>
+            <span id="startLabel">Bắt đầu: 0:00</span>
+            <span id="endLabel">Kết thúc: 0:30</span>
         </div>
         
         <button class="btn" id="cutBtn" disabled>Cắt Nhạc</button>
-        <div class="loader" id="loader">Đang xử lý, vui lòng không đóng app...</div>
     </div>
 
     <script>
@@ -150,133 +158,148 @@
         const urlParams = new URLSearchParams(window.location.search);
         const requestId = urlParams.get('request_id');
         
-        let maxDuration = 100;
-        
         const titleEl = document.getElementById('title');
         const durationEl = document.getElementById('duration');
-        const startSlider = document.getElementById('startSlider');
-        const endSlider = document.getElementById('endSlider');
+        const playBtn = document.getElementById('playBtn');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const cutBtn = document.getElementById('cutBtn');
         const startLabel = document.getElementById('startLabel');
         const endLabel = document.getElementById('endLabel');
-        const rangeFill = document.getElementById('rangeFill');
-        const cutBtn = document.getElementById('cutBtn');
-        const loader = document.getElementById('loader');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
 
+        let ws = null;
+        let activeRegion = null;
+        
         function formatTime(seconds) {
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
-
-        function updateUI() {
-            let start = parseInt(startSlider.value);
-            let end = parseInt(endSlider.value);
-            
-            if (start > end) {
-                let tmp = start;
-                start = end;
-                end = tmp;
-            }
-            
-            if (end - start < 1) {
-                if (start === parseInt(startSlider.value)) {
-                    end = start + 1;
-                    if (end > maxDuration) {
-                        end = maxDuration;
-                        start = end - 1;
-                    }
-                } else {
-                    start = end - 1;
-                    if (start < 0) {
-                        start = 0;
-                        end = 1;
-                    }
-                }
-                startSlider.value = start;
-                endSlider.value = end;
-            }
-            
-            startLabel.textContent = "Start: " + formatTime(start);
-            endLabel.textContent = "End: " + formatTime(end);
-            
-            const percentStart = (start / maxDuration) * 100;
-            const percentEnd = (end / maxDuration) * 100;
-            rangeFill.style.left = percentStart + '%';
-            rangeFill.style.width = (percentEnd - percentStart) + '%';
-        }
-
-        startSlider.addEventListener('input', updateUI);
-        endSlider.addEventListener('input', updateUI);
-
-        if (requestId) {
+        
+        if (!requestId) {
+            loadingText.innerHTML = "Thiếu Request ID<br>Vui lòng mở từ Telegram";
+            document.querySelector('.spinner').style.display = "none";
+        } else {
             fetch(`/api/info?request_id=${requestId}`)
                 .then(res => res.json())
-                .then(data => {
-                    if (data.error) {
-                        titleEl.textContent = "Lỗi";
-                        durationEl.textContent = data.error;
-                    } else {
-                        titleEl.textContent = data.title;
-                        maxDuration = Math.floor(data.duration) || 100;
-                        durationEl.textContent = "Tổng thời lượng: " + formatTime(maxDuration);
-                        
-                        startSlider.max = maxDuration;
-                        endSlider.max = maxDuration;
-                        
-                        startSlider.value = 0;
-                        endSlider.value = Math.min(30, maxDuration);
-                        
+                .then(info => {
+                    if (info.error) throw new Error(info.error);
+                    titleEl.textContent = info.title;
+                    durationEl.textContent = "Đang kéo dữ liệu âm thanh...";
+                    
+                    ws = WaveSurfer.create({
+                        container: '#waveform',
+                        waveColor: 'rgba(255, 255, 255, 0.4)',
+                        progressColor: 'rgba(255, 255, 255, 0.8)',
+                        cursorColor: '#ff9a9e',
+                        barWidth: 2,
+                        barGap: 1,
+                        barRadius: 2,
+                        height: 100,
+                        url: `/api/audio?request_id=${requestId}`,
+                        autoScroll: true,
+                        autoCenter: true
+                    });
+                    
+                    const wsRegions = ws.registerPlugin(WaveSurfer.Regions.create());
+                    
+                    ws.on('ready', () => {
+                        loadingOverlay.style.display = 'none';
+                        durationEl.textContent = "Tổng thời lượng: " + formatTime(ws.getDuration());
+                        playBtn.disabled = false;
                         cutBtn.disabled = false;
-                        updateUI();
+                        
+                        const totalDuration = ws.getDuration();
+                        activeRegion = wsRegions.addRegion({
+                            start: 0,
+                            end: Math.min(30, totalDuration),
+                            color: 'rgba(255, 154, 158, 0.4)',
+                            drag: true,
+                            resize: true
+                        });
+                        
+                        updateLabels();
+                        
+                        wsRegions.on('region-updated', (region) => {
+                            if (region.end - region.start < 1) {
+                                region.end = region.start + 1;
+                            }
+                            updateLabels();
+                        });
+                    });
+                    
+                    ws.on('error', (err) => {
+                        loadingText.innerHTML = "Lỗi khi tải file nhạc: " + err;
+                        document.querySelector('.spinner').style.display = "none";
+                    });
+
+                    function updateLabels() {
+                        if (activeRegion) {
+                            startLabel.textContent = "Bắt đầu: " + formatTime(activeRegion.start);
+                            endLabel.textContent = "Kết thúc: " + formatTime(activeRegion.end);
+                        }
                     }
+
+                    playBtn.addEventListener('click', () => {
+                        if (ws.isPlaying()) {
+                            ws.pause();
+                            playBtn.textContent = '▶';
+                        } else {
+                            if (activeRegion) {
+                                activeRegion.play();
+                            } else {
+                                ws.play();
+                            }
+                            playBtn.textContent = '⏸';
+                        }
+                    });
+                    
+                    ws.on('pause', () => { playBtn.textContent = '▶'; });
+                    ws.on('play', () => { playBtn.textContent = '⏸'; });
+
+                    zoomSlider.addEventListener('input', (e) => {
+                        ws.zoom(Number(e.target.value));
+                    });
+
+                    cutBtn.addEventListener('click', () => {
+                        if (!activeRegion) return;
+                        cutBtn.disabled = true;
+                        loadingOverlay.style.display = 'flex';
+                        loadingText.innerHTML = "Đang gửi lệnh cắt...<br><span style='font-size: 12px;'>Bot sẽ gửi file vào chat</span>";
+                        
+                        fetch('/api/cut', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                request_id: requestId,
+                                start_time: Math.floor(activeRegion.start),
+                                end_time: Math.floor(activeRegion.end),
+                                init_data: tg.initData
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                tg.close();
+                            } else {
+                                alert("Lỗi: " + (data.error || "Không thể cắt nhạc"));
+                                cutBtn.disabled = false;
+                                loadingOverlay.style.display = "none";
+                            }
+                        })
+                        .catch(err => {
+                            alert("Lỗi kết nối: " + err.message);
+                            cutBtn.disabled = false;
+                            loadingOverlay.style.display = "none";
+                        });
+                    });
                 })
                 .catch(err => {
-                    titleEl.textContent = "Lỗi kết nối";
-                    durationEl.textContent = err.message;
+                    loadingText.innerHTML = err.message;
+                    document.querySelector('.spinner').style.display = "none";
                 });
-        } else {
-            titleEl.textContent = "Thiếu Request ID";
-            durationEl.textContent = "Vui lòng mở lại từ Telegram";
         }
-
-        cutBtn.addEventListener('click', () => {
-            let start = parseInt(startSlider.value);
-            let end = parseInt(endSlider.value);
-            if (start > end) {
-                const tmp = start;
-                start = end;
-                end = tmp;
-            }
-            
-            cutBtn.disabled = true;
-            loader.style.display = "block";
-            
-            fetch('/api/cut', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    request_id: requestId,
-                    start_time: start,
-                    end_time: end,
-                    init_data: tg.initData
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    tg.close();
-                } else {
-                    alert("Lỗi: " + (data.error || "Không thể cắt nhạc"));
-                    cutBtn.disabled = false;
-                    loader.style.display = "none";
-                }
-            })
-            .catch(err => {
-                alert("Lỗi kết nối: " + err.message);
-                cutBtn.disabled = false;
-                loader.style.display = "none";
-            });
-        });
     </script>
 </body>
 </html>
