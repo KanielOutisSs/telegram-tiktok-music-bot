@@ -126,7 +126,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "info": info
     }
     
-    web_app_url = os.environ.get("WEB_APP_URL") or (os.environ.get("WEBHOOK_URL", "").rsplit("/", 1)[0] + "/webapp/") if os.environ.get("WEBHOOK_URL") else ""
+    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
+    if not web_app_url.endswith("/"):
+        web_app_url += "/"
     
     keyboard = InlineKeyboardMarkup(
         [
@@ -139,7 +141,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}?request_id={request_id}")) if "http" in web_app_url else InlineKeyboardButton("✂️ Cắt Nhạc (Thiếu URL)", callback_data="missing_url"),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -207,12 +209,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "info": info
     }
 
-    web_app_url = os.environ.get("WEB_APP_URL") or (os.environ.get("WEBHOOK_URL", "").rsplit("/", 1)[0] + "/webapp/") if os.environ.get("WEBHOOK_URL") else ""
+    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
+    if not web_app_url.endswith("/"):
+        web_app_url += "/"
     
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}?request_id={request_id}")) if "http" in web_app_url else InlineKeyboardButton("✂️ Cắt Nhạc (Thiếu URL)", callback_data="missing_url"),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ]
         ]
