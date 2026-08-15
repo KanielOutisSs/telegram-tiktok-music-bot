@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import uuid
+import urllib.parse
 import yt_dlp
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, WebAppInfo
@@ -188,7 +189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=4&request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=5&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -271,7 +272,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=4&request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=5&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ]
         ]
@@ -415,8 +416,28 @@ async def health_check(request: web.Request) -> web.Response:
 
 async def api_info(request: web.Request) -> web.Response:
     request_id = request.query.get("request_id")
+    source_url = request.query.get("source_url")
+    
     if not request_id or request_id not in PENDING_REQUESTS:
-        return web.json_response({"error": "Không tìm thấy thông tin video"})
+        if source_url and source_url.startswith("http"):
+            try:
+                from services.metadata import extract_metadata
+                import time
+                info = await asyncio.wait_for(asyncio.to_thread(extract_metadata, source_url), timeout=60)
+                PENDING_REQUESTS[request_id] = {
+                    "user_id": 0,
+                    "chat_id": 0,
+                    "url": info.get("webpage_url") or source_url,
+                    "info": info,
+                    "timestamp": time.time()
+                }
+                save_requests(PENDING_REQUESTS)
+            except Exception as e:
+                logger.error(f"Heal error: {e}")
+                return web.json_response({"error": "Không tìm thấy thông tin video (Không thể khôi phục link)"})
+        else:
+            return web.json_response({"error": "Không tìm thấy thông tin video"})
+            
     info = PENDING_REQUESTS[request_id]["info"]
     return web.json_response({
         "title": info.get("title", "Video"),

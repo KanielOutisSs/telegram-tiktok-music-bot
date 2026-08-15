@@ -120,6 +120,23 @@
             border-color: var(--tg-theme-button-color, #007aff);
         }
 
+        .settings-group label.checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--tg-theme-text-color, #ffffff);
+            cursor: pointer;
+            margin-bottom: 0;
+        }
+        
+        .settings-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--tg-theme-button-color, #007aff);
+        }
+
         .btn {
             width: 100%;
             padding: 14px;
@@ -201,12 +218,15 @@
             <label for="fileNameInput">Tên file đầu ra</label>
             <input type="text" id="fileNameInput" placeholder="Nhập tên file...">
             
-            <label for="audioEffectSelect">Xử lý âm thanh</label>
-            <select id="audioEffectSelect">
-                <option value="none">Giữ nguyên bản gốc</option>
-                <option value="denoise">Khử nhiễu nền / Tôn giọng (Denoise)</option>
-                <option value="loudnorm">Tối ưu & Tăng âm lượng lớn (Loudnorm)</option>
-            </select>
+            <label>Xử lý âm thanh (Real-time Preview)</label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="effectDenoise">
+                Khử nhiễu nền / Tôn giọng (Denoise)
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" id="effectLoudnorm">
+                Tối ưu & Tăng âm lượng lớn (Loudnorm)
+            </label>
         </div>
         
         <button class="btn" id="cutBtn" disabled>Cắt Nhạc</button>
@@ -218,6 +238,7 @@
         
         const urlParams = new URLSearchParams(window.location.search);
         const requestId = urlParams.get('request_id');
+        const sourceUrl = urlParams.get('source_url');
         
         const titleEl = document.getElementById('title');
         const durationEl = document.getElementById('duration');
@@ -225,7 +246,8 @@
         const zoomSlider = document.getElementById('zoomSlider');
         const cutBtn = document.getElementById('cutBtn');
         const fileNameInput = document.getElementById('fileNameInput');
-        const audioEffectSelect = document.getElementById('audioEffectSelect');
+        const effectDenoise = document.getElementById('effectDenoise');
+        const effectLoudnorm = document.getElementById('effectLoudnorm');
         const startLabel = document.getElementById('startLabel');
         const endLabel = document.getElementById('endLabel');
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -244,7 +266,10 @@
             loadingText.innerHTML = "Thiếu Request ID<br>Vui lòng mở từ Telegram";
             document.querySelector('.spinner').style.display = "none";
         } else {
-            fetch(`/api/info?request_id=${requestId}`)
+            let infoUrl = `/api/info?request_id=${requestId}`;
+            if (sourceUrl) infoUrl += `&source_url=${encodeURIComponent(sourceUrl)}`;
+            
+            fetch(infoUrl)
                 .then(res => res.json())
                 .then(info => {
                     if (info.error) throw new Error(info.error);
@@ -300,7 +325,88 @@
                                         region.end = region.start + 1;
                                     }
                                     updateLabels();
+                                    
+                                    // Kéo con trỏ vào trong vùng cắt nếu vùng cắt bị kéo ra ngoài con trỏ
+                                    const currentTime = ws.getCurrentTime();
+                                    if (currentTime < region.start || currentTime >= region.end) {
+                                        ws.setTime(region.start);
+                                    }
                                 });
+                            });
+                            
+                            // Web Audio API Routing cho Real-time Effects
+                            let audioCtx, mediaSource;
+                            let highpassNode, lowpassNode, compressorNode, gainNode;
+                            
+                            function setupAudioNodes() {
+                                if (audioCtx) return;
+                                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                                audioCtx = new AudioContext();
+                                const mediaElement = ws.getMediaElement();
+                                mediaSource = audioCtx.createMediaElementSource(mediaElement);
+                                
+                                // Nodes cho Denoise (Bandpass giả lập)
+                                highpassNode = audioCtx.createBiquadFilter();
+                                highpassNode.type = 'highpass';
+                                highpassNode.frequency.value = 150;
+                                
+                                lowpassNode = audioCtx.createBiquadFilter();
+                                lowpassNode.type = 'lowpass';
+                                lowpassNode.frequency.value = 6000;
+                                
+                                // Nodes cho Loudnorm
+                                compressorNode = audioCtx.createDynamicsCompressor();
+                                compressorNode.threshold.value = -24;
+                                compressorNode.knee.value = 30;
+                                compressorNode.ratio.value = 12;
+                                compressorNode.attack.value = 0.003;
+                                compressorNode.release.value = 0.25;
+                                
+                                gainNode = audioCtx.createGain();
+                                gainNode.gain.value = 2.0;
+                                
+                                updateAudioRouting();
+                            }
+                            
+                            function updateAudioRouting() {
+                                if (!audioCtx) return;
+                                mediaSource.disconnect();
+                                highpassNode.disconnect();
+                                lowpassNode.disconnect();
+                                compressorNode.disconnect();
+                                gainNode.disconnect();
+                                
+                                let currentNode = mediaSource;
+                                
+                                if (effectDenoise.checked) {
+                                    currentNode.connect(highpassNode);
+                                    highpassNode.connect(lowpassNode);
+                                    currentNode = lowpassNode;
+                                }
+                                
+                                if (effectLoudnorm.checked) {
+                                    currentNode.connect(compressorNode);
+                                    compressorNode.connect(gainNode);
+                                    currentNode = gainNode;
+                                }
+                                
+                                currentNode.connect(audioCtx.destination);
+                            }
+                            
+                            effectDenoise.addEventListener('change', () => { setupAudioNodes(); updateAudioRouting(); });
+                            effectLoudnorm.addEventListener('change', () => { setupAudioNodes(); updateAudioRouting(); });
+                            
+                            // Bắt buộc con trỏ luôn nằm trong vùng cắt khi phát
+                            ws.on('timeupdate', (currentTime) => {
+                                if (activeRegion && ws.isPlaying()) {
+                                    if (currentTime >= activeRegion.end) {
+                                        ws.pause();
+                                        ws.setTime(activeRegion.start);
+                                        playBtn.innerHTML = '▶';
+                                    } else if (currentTime < activeRegion.start) {
+                                        ws.setTime(activeRegion.start);
+                                    }
+                                }
                             });
                             
                             ws.on('error', (err) => {
@@ -309,6 +415,9 @@
                             });
 
                             playBtn.addEventListener('click', () => {
+                                setupAudioNodes(); // Khởi tạo AudioContext nếu chưa có (phải làm trong user gesture)
+                                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+                                
                                 if (ws.isPlaying()) {
                                     ws.pause();
                                     // Quay lại đầu mút trái khi bấm nút Stop
@@ -344,6 +453,11 @@
                         loadingOverlay.style.display = 'flex';
                         loadingText.innerHTML = "Đang gửi lệnh cắt...<br><span style='font-size: 12px;'>Bot sẽ gửi file vào chat</span>";
                         
+                        let audioEffect = "none";
+                        if (effectDenoise.checked && effectLoudnorm.checked) audioEffect = "denoise,loudnorm";
+                        else if (effectDenoise.checked) audioEffect = "denoise";
+                        else if (effectLoudnorm.checked) audioEffect = "loudnorm";
+                        
                         fetch('/api/cut', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -352,7 +466,7 @@
                                 start_time: Math.floor(activeRegion.start),
                                 end_time: Math.floor(activeRegion.end),
                                 file_name: fileNameInput.value.trim() || titleEl.textContent,
-                                audio_effect: audioEffectSelect.value,
+                                audio_effect: audioEffect,
                                 init_data: tg.initData
                             })
                         })

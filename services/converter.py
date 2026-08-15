@@ -60,6 +60,8 @@ def cut_audio(input_path: Path, output_path: Path, start_seconds: int, end_secon
         command.extend(["-af", "afftdn"])
     elif audio_effect == "loudnorm":
         command.extend(["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"])
+    elif audio_effect == "denoise,loudnorm":
+        command.extend(["-af", "afftdn,loudnorm=I=-16:TP=-1.5:LRA=11"])
         
     command.extend([
         "-c:a", "libmp3lame", "-b:a", "320k",
