@@ -25,8 +25,34 @@ from services.metadata import extract_metadata
 from services.download import download_media_from_info
 from services.converter import extract_ringtone
 
+import json
+import time
+
+REQUESTS_FILE = "pending_requests.json"
+
+def load_requests():
+    try:
+        if os.path.exists(REQUESTS_FILE):
+            with open(REQUESTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading requests: {e}")
+    return {}
+
+def save_requests(data):
+    current_time = time.time()
+    keys_to_delete = [k for k, v in data.items() if current_time - v.get("timestamp", current_time) > 86400]
+    for k in keys_to_delete:
+        del data[k]
+        
+    try:
+        with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error saving requests: {e}")
+
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
-PENDING_REQUESTS = {}
+PENDING_REQUESTS = load_requests()
 BOT_APP = None
 
 logging.basicConfig(
@@ -123,8 +149,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "user_id": update.effective_user.id,
         "chat_id": update.effective_chat.id,
         "url": info.get("webpage_url") or url,
-        "info": info
+        "info": info,
+        "timestamp": time.time()
     }
+    save_requests(PENDING_REQUESTS)
     
     web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
     if not web_app_url.endswith("/"):
@@ -206,8 +234,10 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "chat_id": update.effective_chat.id,
         "source": "telegram",
         "file_id": audio.file_id,
-        "info": info
+        "info": info,
+        "timestamp": time.time()
     }
+    save_requests(PENDING_REQUESTS)
 
     web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
     if not web_app_url.endswith("/"):
