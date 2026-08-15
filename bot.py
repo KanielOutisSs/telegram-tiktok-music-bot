@@ -40,17 +40,13 @@ def load_requests():
     return {}
 
 def save_requests(data):
-    current_time = time.time()
-    keys_to_delete = [k for k, v in data.items() if current_time - v.get("timestamp", current_time) > 86400]
-    for k in keys_to_delete:
-        del data[k]
-        
     try:
         with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Error saving requests: {e}")
 
+MAX_REQUESTS = 10000
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 PENDING_REQUESTS = load_requests()
 BOT_APP = None
@@ -77,13 +73,36 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "1️⃣ Gửi một link video công khai từ TikTok, YouTube, Facebook, Instagram.\n"
         "2️⃣ Chọn định dạng bạn muốn tải qua các nút bấm đính kèm.\n"
         "3️⃣ Chờ bot xử lý và gửi file về cho bạn.\n\n"
+        "🧹 <b>Quản lý dữ liệu:</b>\n"
+        "Gõ /cleardata để xoá toàn bộ dữ liệu tạm thời khi bot báo đầy bộ nhớ.\n\n"
         "<i>Lưu ý: Chỉ tải nội dung bạn sở hữu hoặc được phép sử dụng. Không tải video quá dài (>15 phút).</i>"
     )
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
 
+async def cleardata_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global PENDING_REQUESTS
+    PENDING_REQUESTS.clear()
+    save_requests(PENDING_REQUESTS)
+    
+    # Xoá các thư mục tạm
+    temp_dir_base = tempfile.gettempdir()
+    count = 0
+    for path in Path(temp_dir_base).glob("media_bot_audio_*"):
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            count += 1
+        except Exception:
+            pass
+            
+    await update.effective_message.reply_text(f"✅ Đã dọn dẹp bộ nhớ thành công!\n- Xoá lịch sử link.\n- Xoá {count} thư mục file rác.")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message or not message.text:
+        return
+
+    if len(PENDING_REQUESTS) >= MAX_REQUESTS:
+        await message.reply_text("⚠️ Bộ nhớ lưu trữ link của bot đã đạt mức tối đa. Vui lòng gõ lệnh /cleardata để dọn dẹp trước khi sử dụng tiếp.")
         return
 
     url = extract_url(message.text)
@@ -208,6 +227,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
+    if not message: return
+    
+    if len(PENDING_REQUESTS) >= MAX_REQUESTS:
+        await message.reply_text("⚠️ Bộ nhớ lưu trữ link của bot đã đạt mức tối đa. Vui lòng gõ lệnh /cleardata để dọn dẹp trước khi sử dụng tiếp.")
+        return
+
     audio = message.audio or message.voice or message.document
     if not audio:
         return
@@ -509,6 +534,7 @@ def main() -> None:
     
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("cleardata", cleardata_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE | filters.Document.AUDIO, handle_audio))
     application.add_handler(CallbackQueryHandler(handle_callback))
