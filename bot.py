@@ -188,7 +188,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=3&request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=4&request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -271,7 +271,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=3&request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=4&request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ]
         ]

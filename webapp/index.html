@@ -155,6 +155,21 @@
             margin-bottom: 16px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Hiển thị rõ thanh kéo 2 bên của vùng chọn (Regions Plugin V7) */
+        #waveform ::part(region-handle) {
+            width: 14px !important;
+            background-color: rgba(255, 255, 255, 0.9) !important;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            cursor: ew-resize !important;
+        }
+        #waveform ::part(region-handle-left) {
+            border-right: 2px solid rgba(0,0,0,0.3);
+        }
+        #waveform ::part(region-handle-right) {
+            border-left: 2px solid rgba(0,0,0,0.3);
+        }
     </style>
 </head>
 <body>
@@ -296,20 +311,23 @@
                             playBtn.addEventListener('click', () => {
                                 if (ws.isPlaying()) {
                                     ws.pause();
-                                    playBtn.textContent = '▶';
+                                    // Quay lại đầu mút trái khi bấm nút Stop
+                                    if (activeRegion) {
+                                        ws.setTime(activeRegion.start);
+                                    }
+                                    playBtn.innerHTML = '▶';
                                 } else {
-                                    const currentTime = ws.getCurrentTime();
-                                    if (activeRegion && (currentTime < activeRegion.start || currentTime >= activeRegion.end)) {
+                                    if (activeRegion) {
                                         activeRegion.play();
                                     } else {
                                         ws.play();
                                     }
-                                    playBtn.textContent = '⏸';
+                                    playBtn.innerHTML = '&#9209;'; // Ký hiệu nút Stop (vuông)
                                 }
                             });
                             
-                            ws.on('pause', () => { playBtn.textContent = '▶'; });
-                            ws.on('play', () => { playBtn.textContent = '⏸'; });
+                            ws.on('pause', () => { playBtn.innerHTML = '▶'; });
+                            ws.on('play', () => { playBtn.innerHTML = '&#9209;'; });
 
                             zoomSlider.addEventListener('input', (e) => {
                                 ws.zoom(Number(e.target.value));
