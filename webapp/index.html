@@ -249,7 +249,8 @@
                                     ws.pause();
                                     playBtn.textContent = '▶';
                                 } else {
-                                    if (activeRegion) {
+                                    const currentTime = ws.getCurrentTime();
+                                    if (activeRegion && (currentTime < activeRegion.start || currentTime >= activeRegion.end)) {
                                         activeRegion.play();
                                     } else {
                                         ws.play();
