@@ -83,7 +83,41 @@
             justify-content: space-between;
             font-size: 14px;
             font-weight: 500;
+            margin-bottom: 20px;
+        }
+
+        .settings-group {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
             margin-bottom: 24px;
+            background: rgba(0,0,0,0.2);
+            padding: 16px;
+            border-radius: 12px;
+            box-sizing: border-box;
+        }
+
+        .settings-group label {
+            font-size: 13px;
+            color: var(--tg-theme-hint-color, #98989d);
+            margin-bottom: -4px;
+        }
+
+        .settings-group input, .settings-group select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: var(--tg-theme-bg-color, #1c1c1d);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-size: 14px;
+            outline: none;
+            box-sizing: border-box;
+        }
+        
+        .settings-group input:focus, .settings-group select:focus {
+            border-color: var(--tg-theme-button-color, #007aff);
         }
 
         .btn {
@@ -148,6 +182,18 @@
             <span id="endLabel">Kết thúc: 0:30</span>
         </div>
         
+        <div class="settings-group">
+            <label for="fileNameInput">Tên file đầu ra</label>
+            <input type="text" id="fileNameInput" placeholder="Nhập tên file...">
+            
+            <label for="audioEffectSelect">Xử lý âm thanh</label>
+            <select id="audioEffectSelect">
+                <option value="none">Giữ nguyên bản gốc</option>
+                <option value="denoise">Khử nhiễu nền / Tôn giọng (Denoise)</option>
+                <option value="loudnorm">Tối ưu & Tăng âm lượng lớn (Loudnorm)</option>
+            </select>
+        </div>
+        
         <button class="btn" id="cutBtn" disabled>Cắt Nhạc</button>
     </div>
 
@@ -163,6 +209,8 @@
         const playBtn = document.getElementById('playBtn');
         const zoomSlider = document.getElementById('zoomSlider');
         const cutBtn = document.getElementById('cutBtn');
+        const fileNameInput = document.getElementById('fileNameInput');
+        const audioEffectSelect = document.getElementById('audioEffectSelect');
         const startLabel = document.getElementById('startLabel');
         const endLabel = document.getElementById('endLabel');
         const loadingOverlay = document.getElementById('loadingOverlay');
@@ -186,6 +234,7 @@
                 .then(info => {
                     if (info.error) throw new Error(info.error);
                     titleEl.textContent = info.title;
+                    fileNameInput.value = info.title;
                     durationEl.textContent = "Đang kéo dữ liệu âm thanh...";
                     
                     // We fetch the audio file manually to catch 500 errors and avoid EncodingError on broken files
@@ -284,6 +333,8 @@
                                 request_id: requestId,
                                 start_time: Math.floor(activeRegion.start),
                                 end_time: Math.floor(activeRegion.end),
+                                file_name: fileNameInput.value.trim() || titleEl.textContent,
+                                audio_effect: audioEffectSelect.value,
                                 init_data: tg.initData
                             })
                         })

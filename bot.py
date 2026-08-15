@@ -188,7 +188,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=3&request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -271,7 +271,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?request_id={request_id}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=3&request_id={request_id}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ]
         ]
@@ -423,7 +423,7 @@ async def api_info(request: web.Request) -> web.Response:
         "duration": info.get("duration", 0)
     })
 
-async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=None, file_id=None, downloaded_file=None):
+async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=None, file_id=None, downloaded_file=None, custom_file_name=None, audio_effect="none"):
     if not BOT_APP: return
     bot = BOT_APP.bot
     status_msg = await bot.send_message(chat_id=chat_id, text="⏳ Đang chuẩn bị nhạc để cắt...")
@@ -451,9 +451,9 @@ async def process_cut_audio(chat_id, cached_info, start_time, end_time, source=N
         await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="🎧 Đang tiến hành cắt đoạn nhạc...")
         
         from services.converter import cut_audio
-        await asyncio.to_thread(cut_audio, file_path, output_file_path, start_time, end_time)
+        await asyncio.to_thread(cut_audio, file_path, output_file_path, start_time, end_time, audio_effect)
         
-        title = safe_filename(downloaded_info.get("title") or "Media")
+        title = safe_filename(custom_file_name if custom_file_name else (downloaded_info.get("title") or "Media"))
         duration = end_time - start_time
         
         await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="📤 Đang gửi file đã cắt...")
@@ -520,7 +520,12 @@ async def api_cut(request: web.Request) -> web.Response:
             return web.json_response({"error": "Yêu cầu đã hết hạn", "success": False})
         
         req_data = PENDING_REQUESTS[request_id]
-        asyncio.create_task(process_cut_audio(req_data["chat_id"], req_data["info"], int(data.get("start_time", 0)), int(data.get("end_time", 0)), req_data.get("source"), req_data.get("file_id"), req_data.get("downloaded_file")))
+        asyncio.create_task(process_cut_audio(
+            req_data["chat_id"], req_data["info"], 
+            int(data.get("start_time", 0)), int(data.get("end_time", 0)), 
+            req_data.get("source"), req_data.get("file_id"), req_data.get("downloaded_file"),
+            data.get("file_name"), data.get("audio_effect", "none")
+        ))
         return web.json_response({"success": True})
     except Exception as e:
         logger.error(f"API cut error: {e}")

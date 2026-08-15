@@ -48,14 +48,23 @@ def extract_ringtone(input_path: Path, output_path: Path, start_seconds: int = 0
         raise FileNotFoundError("Không tạo được file M4R.")
 
 
-def cut_audio(input_path: Path, output_path: Path, start_seconds: int, end_seconds: int) -> None:
+def cut_audio(input_path: Path, output_path: Path, start_seconds: int, end_seconds: int, audio_effect: str = "none") -> None:
     duration = max(1, end_seconds - start_seconds)
     command = [
         "ffmpeg", "-y", "-ss", str(max(start_seconds, 0)),
         "-i", str(input_path), "-t", str(duration),
-        "-vn", "-c:a", "libmp3lame", "-b:a", "320k",
-        str(output_path)
+        "-vn"
     ]
+    
+    if audio_effect == "denoise":
+        command.extend(["-af", "afftdn"])
+    elif audio_effect == "loudnorm":
+        command.extend(["-af", "loudnorm=I=-16:TP=-1.5:LRA=11"])
+        
+    command.extend([
+        "-c:a", "libmp3lame", "-b:a", "320k",
+        str(output_path)
+    ])
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=120)
     if result.returncode != 0:
         logger.error(f"FFmpeg cut audio error: {result.stderr}")
