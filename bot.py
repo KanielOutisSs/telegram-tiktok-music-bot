@@ -432,8 +432,13 @@ async def api_audio(request: web.Request) -> web.Response:
             file_id = req_data["file_id"]
             if not BOT_APP: raise ValueError("Bot app not initialized")
             tg_file = await BOT_APP.bot.get_file(file_id)
+            raw_path = Path(temp_dir) / f"raw_{uuid.uuid4().hex}.tmp"
+            await tg_file.download_to_drive(raw_path)
+            
             input_file_path = Path(temp_dir) / f"input_{uuid.uuid4().hex}.mp3"
-            await tg_file.download_to_drive(input_file_path)
+            from services.converter import convert_to_mp3
+            await asyncio.to_thread(convert_to_mp3, raw_path, input_file_path)
+            
             req_data["downloaded_file"] = str(input_file_path)
             return web.FileResponse(input_file_path)
         else:

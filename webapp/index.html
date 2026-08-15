@@ -188,79 +188,87 @@
                     titleEl.textContent = info.title;
                     durationEl.textContent = "Đang kéo dữ liệu âm thanh...";
                     
-                    ws = WaveSurfer.create({
-                        container: '#waveform',
-                        waveColor: 'rgba(255, 255, 255, 0.4)',
-                        progressColor: 'rgba(255, 255, 255, 0.8)',
-                        cursorColor: '#ff9a9e',
-                        barWidth: 2,
-                        barGap: 1,
-                        barRadius: 2,
-                        height: 100,
-                        url: `/api/audio?request_id=${requestId}`,
-                        autoScroll: true,
-                        autoCenter: true
-                    });
-                    
-                    const wsRegions = ws.registerPlugin(WaveSurfer.Regions.create());
-                    
-                    ws.on('ready', () => {
-                        loadingOverlay.style.display = 'none';
-                        durationEl.textContent = "Tổng thời lượng: " + formatTime(ws.getDuration());
-                        playBtn.disabled = false;
-                        cutBtn.disabled = false;
-                        
-                        const totalDuration = ws.getDuration();
-                        activeRegion = wsRegions.addRegion({
-                            start: 0,
-                            end: Math.min(30, totalDuration),
-                            color: 'rgba(255, 154, 158, 0.4)',
-                            drag: true,
-                            resize: true
-                        });
-                        
-                        updateLabels();
-                        
-                        wsRegions.on('region-updated', (region) => {
-                            if (region.end - region.start < 1) {
-                                region.end = region.start + 1;
+                    // We fetch the audio file manually to catch 500 errors and avoid EncodingError on broken files
+                    fetch(`/api/audio?request_id=${requestId}`)
+                        .then(audioRes => {
+                            if (!audioRes.ok) {
+                                return audioRes.text().then(text => { throw new Error(text || 'Không thể tải file nhạc'); });
                             }
-                            updateLabels();
+                            return audioRes.blob();
+                        })
+                        .then(blob => {
+                            const audioUrl = URL.createObjectURL(blob);
+                            ws = WaveSurfer.create({
+                                container: '#waveform',
+                                waveColor: 'rgba(255, 255, 255, 0.4)',
+                                progressColor: 'rgba(255, 255, 255, 0.8)',
+                                cursorColor: '#ff9a9e',
+                                barWidth: 2,
+                                barGap: 1,
+                                barRadius: 2,
+                                height: 100,
+                                url: audioUrl,
+                                autoScroll: true,
+                                autoCenter: true
+                            });
+                            
+                            const wsRegions = ws.registerPlugin(WaveSurfer.Regions.create());
+                            
+                            ws.on('ready', () => {
+                                loadingOverlay.style.display = 'none';
+                                durationEl.textContent = "Tổng thời lượng: " + formatTime(ws.getDuration());
+                                playBtn.disabled = false;
+                                cutBtn.disabled = false;
+                                
+                                const totalDuration = ws.getDuration();
+                                activeRegion = wsRegions.addRegion({
+                                    start: 0,
+                                    end: Math.min(30, totalDuration),
+                                    color: 'rgba(255, 154, 158, 0.4)',
+                                    drag: true,
+                                    resize: true
+                                });
+                                
+                                updateLabels();
+                                
+                                wsRegions.on('region-updated', (region) => {
+                                    if (region.end - region.start < 1) {
+                                        region.end = region.start + 1;
+                                    }
+                                    updateLabels();
+                                });
+                            });
+                            
+                            ws.on('error', (err) => {
+                                loadingText.innerHTML = "Lỗi giải mã âm thanh: Định dạng không được hỗ trợ.";
+                                document.querySelector('.spinner').style.display = "none";
+                            });
+
+                            playBtn.addEventListener('click', () => {
+                                if (ws.isPlaying()) {
+                                    ws.pause();
+                                    playBtn.textContent = '▶';
+                                } else {
+                                    if (activeRegion) {
+                                        activeRegion.play();
+                                    } else {
+                                        ws.play();
+                                    }
+                                    playBtn.textContent = '⏸';
+                                }
+                            });
+                            
+                            ws.on('pause', () => { playBtn.textContent = '▶'; });
+                            ws.on('play', () => { playBtn.textContent = '⏸'; });
+
+                            zoomSlider.addEventListener('input', (e) => {
+                                ws.zoom(Number(e.target.value));
+                            });
+                        })
+                        .catch(err => {
+                            loadingText.innerHTML = "Lỗi âm thanh: " + err.message;
+                            document.querySelector('.spinner').style.display = "none";
                         });
-                    });
-                    
-                    ws.on('error', (err) => {
-                        loadingText.innerHTML = "Lỗi khi tải file nhạc: " + err;
-                        document.querySelector('.spinner').style.display = "none";
-                    });
-
-                    function updateLabels() {
-                        if (activeRegion) {
-                            startLabel.textContent = "Bắt đầu: " + formatTime(activeRegion.start);
-                            endLabel.textContent = "Kết thúc: " + formatTime(activeRegion.end);
-                        }
-                    }
-
-                    playBtn.addEventListener('click', () => {
-                        if (ws.isPlaying()) {
-                            ws.pause();
-                            playBtn.textContent = '▶';
-                        } else {
-                            if (activeRegion) {
-                                activeRegion.play();
-                            } else {
-                                ws.play();
-                            }
-                            playBtn.textContent = '⏸';
-                        }
-                    });
-                    
-                    ws.on('pause', () => { playBtn.textContent = '▶'; });
-                    ws.on('play', () => { playBtn.textContent = '⏸'; });
-
-                    zoomSlider.addEventListener('input', (e) => {
-                        ws.zoom(Number(e.target.value));
-                    });
 
                     cutBtn.addEventListener('click', () => {
                         if (!activeRegion) return;
