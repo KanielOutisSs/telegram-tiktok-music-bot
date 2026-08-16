@@ -59,6 +59,9 @@ def build_download_options(output_dir: str, media_type: str) -> dict:
             "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "format_sort": ["res:1080", "vcodec:h264", "acodec:m4a"],
             "merge_output_format": "mp4",
+            "postprocessor_args": [
+                "-movflags", "+faststart"
+            ]
         }
 
     if media_type == "ringtone":

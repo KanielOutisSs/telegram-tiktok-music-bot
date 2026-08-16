@@ -376,6 +376,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if format_type == "video":
                 await query.message.reply_video(
                     video=media_file,
+                    filename=f"{title}.mp4",
                     caption=f"🎬 {title}",
                     supports_streaming=True,
                     width=downloaded_info.get("width"),
