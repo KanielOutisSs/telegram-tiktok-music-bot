@@ -429,19 +429,29 @@
                                 
                                 if (ws.isPlaying()) {
                                     ws.pause();
-                                    // Quay lại đầu mút trái khi bấm nút Stop
+                                    // Delay một chút để trình duyệt hoàn tất việc pause rồi mới tua (chống lỗi iOS)
                                     if (activeRegion) {
-                                        ws.setTime(activeRegion.start);
+                                        setTimeout(() => {
+                                            ws.setTime(activeRegion.start);
+                                        }, 50);
                                     }
                                     playBtn.innerHTML = '▶';
                                 } else {
                                     if (activeRegion) {
                                         const ct = ws.getCurrentTime();
-                                        // Nếu con trỏ ở ngoài vùng, nhảy về đầu vùng
-                                        if (ct < activeRegion.start || ct >= activeRegion.end) {
+                                        // Nếu con trỏ ở ngoài vùng hoặc chạm sát mút phải, nhảy về đầu vùng
+                                        if (ct < activeRegion.start || ct >= activeRegion.end - 0.1) {
                                             ws.setTime(activeRegion.start);
+                                            // Đợi trình duyệt tua xong rồi mới phát nhạc để tránh phát ra đoạn âm thanh cũ
+                                            const media = ws.getMediaElement();
+                                            const onSeeked = () => {
+                                                media.removeEventListener('seeked', onSeeked);
+                                                ws.play();
+                                            };
+                                            media.addEventListener('seeked', onSeeked);
+                                        } else {
+                                            ws.play();
                                         }
-                                        ws.play();
                                     } else {
                                         ws.play();
                                     }
