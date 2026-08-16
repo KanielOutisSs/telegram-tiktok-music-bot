@@ -56,7 +56,8 @@ def build_download_options(output_dir: str, media_type: str) -> dict:
     if media_type == "video":
         return {
             **base,
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format_sort": ["res:1080", "vcodec:h264", "acodec:m4a"],
             "merge_output_format": "mp4",
         }
 

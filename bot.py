@@ -369,7 +369,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await query.message.reply_video(
                     video=media_file,
                     caption=f"🎬 {title}",
-                    supports_streaming=True
+                    supports_streaming=True,
+                    width=downloaded_info.get("width"),
+                    height=downloaded_info.get("height"),
+                    duration=int(duration) if duration else None
                 )
             elif format_type == "mp3":
                 await query.message.reply_audio(
