@@ -318,8 +318,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     
     request_data = context.user_data.get(request_id)
     if not request_data:
-        await query.message.reply_text("❌ Yêu cầu đã hết hạn. Hãy gửi lại link.")
-        return
+        if request_id in PENDING_REQUESTS:
+            request_data = PENDING_REQUESTS[request_id]
+            context.user_data[request_id] = request_data
+        else:
+            try:
+                await query.message.delete()
+            except Exception as e:
+                logger.error("Failed to delete expired message: %s", e)
+            await query.answer("❌ Yêu cầu đã hết hạn và đã được tự động xóa.", show_alert=True)
+            return
         
     if query.from_user.id != request_data["user_id"]:
         await query.answer("Bạn không thể dùng nút của người khác.", show_alert=True)
