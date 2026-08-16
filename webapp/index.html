@@ -175,7 +175,7 @@
         
         /* Hiển thị rõ thanh kéo 2 bên của vùng chọn (Regions Plugin V7) */
         #waveform ::part(region-handle) {
-            width: 14px !important;
+            width: 8px !important;
             background-color: rgba(255, 255, 255, 0.9) !important;
             border-radius: 4px;
             box-shadow: 0 0 5px rgba(0,0,0,0.5);
@@ -211,6 +211,7 @@
         
         <div class="time-labels">
             <span id="startLabel">Bắt đầu: 0:00</span>
+            <span id="durationLabel" style="color: #ff9a9e; font-weight: bold;">Độ dài: 0:30</span>
             <span id="endLabel">Kết thúc: 0:30</span>
         </div>
         
@@ -250,6 +251,7 @@
         const effectLoudnorm = document.getElementById('effectLoudnorm');
         const startLabel = document.getElementById('startLabel');
         const endLabel = document.getElementById('endLabel');
+        const durationCutLabel = document.getElementById('durationLabel');
         const loadingOverlay = document.getElementById('loadingOverlay');
         const loadingText = document.getElementById('loadingText');
 
@@ -260,6 +262,13 @@
             const m = Math.floor(seconds / 60);
             const s = Math.floor(seconds % 60);
             return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+        
+        function updateLabels() {
+            if (!activeRegion) return;
+            startLabel.textContent = "Bắt đầu: " + formatTime(activeRegion.start);
+            endLabel.textContent = "Kết thúc: " + formatTime(activeRegion.end);
+            durationCutLabel.textContent = "Độ dài: " + formatTime(activeRegion.end - activeRegion.start);
         }
         
         if (!requestId) {
@@ -415,7 +424,7 @@
                             });
 
                             playBtn.addEventListener('click', () => {
-                                setupAudioNodes(); // Khởi tạo AudioContext nếu chưa có (phải làm trong user gesture)
+                                setupAudioNodes(); // Khởi tạo AudioContext nếu chưa có
                                 if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
                                 
                                 if (ws.isPlaying()) {
@@ -427,11 +436,16 @@
                                     playBtn.innerHTML = '▶';
                                 } else {
                                     if (activeRegion) {
-                                        activeRegion.play();
+                                        const ct = ws.getCurrentTime();
+                                        // Nếu con trỏ ở ngoài vùng, nhảy về đầu vùng
+                                        if (ct < activeRegion.start || ct >= activeRegion.end) {
+                                            ws.setTime(activeRegion.start);
+                                        }
+                                        ws.play();
                                     } else {
                                         ws.play();
                                     }
-                                    playBtn.innerHTML = '&#9209;'; // Ký hiệu nút Stop (vuông)
+                                    playBtn.innerHTML = '&#9209;'; // Ký hiệu nút Stop
                                 }
                             });
                             

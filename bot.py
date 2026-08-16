@@ -189,7 +189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("🍎 Nhạc chuông", callback_data=f"download:ringtone:{request_id}"),
             ],
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=5&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=6&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ],
         ]
@@ -272,7 +272,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=5&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
+                InlineKeyboardButton("✂️ Cắt Nhạc", web_app=WebAppInfo(url=f"{web_app_url}index.html?v=6&request_id={request_id}&source_url={urllib.parse.quote(PENDING_REQUESTS[request_id].get('url', ''))}")),
                 InlineKeyboardButton("❌ Hủy", callback_data="cancel"),
             ]
         ]
