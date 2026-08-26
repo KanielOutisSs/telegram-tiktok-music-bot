@@ -7,6 +7,8 @@ def detect_platform(url: str) -> str:
         return "youtube"
     if "tiktok.com" in domain:
         return "tiktok"
+    if "douyin.com" in domain:
+        return "douyin"
     if "facebook.com" in domain or "fb.watch" in domain:
         return "facebook"
     if "instagram.com" in domain:

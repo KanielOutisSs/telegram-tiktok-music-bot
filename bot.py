@@ -20,7 +20,7 @@ from telegram.ext import (
 
 from pathlib import Path
 from config import BOT_TOKEN, PORT, MAX_OUTPUT_BYTES, MAX_OUTPUT_MB, MAX_DURATION_SECONDS
-from utils.url import extract_url, expand_tiktok_url
+from utils.url import extract_url, expand_short_url
 from utils.format import detect_platform, safe_filename
 from services.metadata import extract_metadata
 from services.download import download_media_from_info
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "👋 Chào mừng bạn đến với <b>Media Bot (Phiên bản Mới)</b>!\n\n"
-        "Bạn có thể gửi link từ <b>TikTok, YouTube (Shorts), Facebook (Reels), Instagram (Reels)</b>.\n"
+        "Bạn có thể gửi link từ <b>TikTok, Douyin, YouTube (Shorts), Facebook (Reels), Instagram (Reels)</b>.\n"
         "Bot luôn chọn luồng âm thanh có chất lượng cao nhất mà nền tảng cung cấp.\n\n"
         "Dùng /help để xem hướng dẫn chi tiết."
     )
@@ -71,7 +71,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "💡 <b>Hướng dẫn sử dụng:</b>\n\n"
-        "1️⃣ Gửi một link video công khai từ TikTok, YouTube, Facebook, Instagram.\n"
+        "1️⃣ Gửi một link video công khai từ TikTok, Douyin, YouTube, Facebook, Instagram.\n"
         "2️⃣ Chọn định dạng bạn muốn tải qua các nút bấm đính kèm.\n"
         "3️⃣ Chờ bot xử lý và gửi file về cho bạn.\n\n"
         "🧹 <b>Quản lý dữ liệu:</b>\n"
@@ -111,11 +111,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("❌ Hãy gửi một link hợp lệ.")
         return
         
-    url = await expand_tiktok_url(url)
+    url = await expand_short_url(url)
 
-    if not detect_platform(url):
-        await message.reply_text("❌ Hiện bot chỉ hỗ trợ TikTok, YouTube, Facebook, Instagram.")
+    if detect_platform(url) == "other":
+        await message.reply_text("❌ Hiện bot chỉ hỗ trợ TikTok, Douyin, YouTube, Facebook, Instagram.")
         return
+
 
     status = await message.reply_text("🔍 Đang lấy thông tin video...")
     
