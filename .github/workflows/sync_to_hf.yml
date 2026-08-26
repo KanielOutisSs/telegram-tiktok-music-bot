@@ -1,0 +1,29 @@
+name: Sync to Hugging Face Hub
+
+on:
+  push:
+    branches: [main]
+  # Cho phép bấm chạy thủ công trên GitHub
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to Hugging Face Space
+        env:
+          # Thay bằng Token bảo mật lấy từ Hugging Face (để trong GitHub Secrets)
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          
+          # 🔴 QUAN TRỌNG: SỬA 2 DÒNG NÀY THÀNH THÔNG TIN CỦA BẠN TRÊN HUGGING FACE
+          HF_USERNAME: "KanielOutisVN"
+          HF_SPACE_NAME: "telegram-tiktok-music-bot"
+          
+        run: |
+          git remote add huggingface https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME
+          git push --force huggingface main
