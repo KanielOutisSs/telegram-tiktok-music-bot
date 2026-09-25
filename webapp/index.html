@@ -205,7 +205,7 @@
             <button class="btn-play" id="playBtn" disabled>▶</button>
             <div class="zoom-control">
                 <span>Zoom</span>
-                <input type="range" id="zoomSlider" min="10" max="1000" value="10">
+                <input type="range" id="zoomSlider" min="10" max="200" value="10">
             </div>
         </div>
         
@@ -213,6 +213,11 @@
             <span id="startLabel">Bắt đầu: 0:00</span>
             <span id="durationLabel" style="color: #ff9a9e; font-weight: bold;">Độ dài: 0:30</span>
             <span id="endLabel">Kết thúc: 0:30</span>
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <button class="btn" id="setStartBtn" style="padding: 8px; font-size: 13px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">👇 Đặt điểm Bắt đầu</button>
+            <button class="btn" id="setEndBtn" style="padding: 8px; font-size: 13px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">Đặt điểm Kết thúc 👇</button>
         </div>
         
         <div class="settings-group">
@@ -254,6 +259,8 @@
         const durationCutLabel = document.getElementById('durationLabel');
         const loadingOverlay = document.getElementById('loadingOverlay');
         const loadingText = document.getElementById('loadingText');
+        const setStartBtn = document.getElementById('setStartBtn');
+        const setEndBtn = document.getElementById('setEndBtn');
 
         let ws = null;
         let activeRegion = null;
@@ -464,6 +471,44 @@
 
                             zoomSlider.addEventListener('input', (e) => {
                                 ws.zoom(Number(e.target.value));
+                            });
+                            
+                            setStartBtn.addEventListener('click', () => {
+                                if (!activeRegion || !ws) return;
+                                const ct = ws.getCurrentTime();
+                                if (ct < activeRegion.end - 1) {
+                                    const oldEnd = activeRegion.end;
+                                    activeRegion.remove();
+                                    activeRegion = wsRegions.addRegion({
+                                        start: ct,
+                                        end: oldEnd,
+                                        color: 'rgba(255, 154, 158, 0.4)',
+                                        drag: true,
+                                        resize: true
+                                    });
+                                    updateLabels();
+                                } else {
+                                    tg.showAlert("Điểm bắt đầu phải nằm trước điểm kết thúc ít nhất 1 giây!");
+                                }
+                            });
+                            
+                            setEndBtn.addEventListener('click', () => {
+                                if (!activeRegion || !ws) return;
+                                const ct = ws.getCurrentTime();
+                                if (ct > activeRegion.start + 1) {
+                                    const oldStart = activeRegion.start;
+                                    activeRegion.remove();
+                                    activeRegion = wsRegions.addRegion({
+                                        start: oldStart,
+                                        end: ct,
+                                        color: 'rgba(255, 154, 158, 0.4)',
+                                        drag: true,
+                                        resize: true
+                                    });
+                                    updateLabels();
+                                } else {
+                                    tg.showAlert("Điểm kết thúc phải nằm sau điểm bắt đầu ít nhất 1 giây!");
+                                }
                             });
                         })
                         .catch(err => {
