@@ -175,7 +175,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     }
     save_requests(PENDING_REQUESTS)
     
-    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
+    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot-egd0.onrender.com/webapp/")
     if not web_app_url.endswith("/"):
         web_app_url += "/"
     
@@ -266,7 +266,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     }
     save_requests(PENDING_REQUESTS)
 
-    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot.onrender.com/webapp/")
+    web_app_url = os.environ.get("WEB_APP_URL", "https://telegram-tiktok-music-bot-egd0.onrender.com/webapp/")
     if not web_app_url.endswith("/"):
         web_app_url += "/"
     
