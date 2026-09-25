@@ -382,7 +382,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     supports_streaming=True,
                     width=downloaded_info.get("width"),
                     height=downloaded_info.get("height"),
-                    duration=int(duration) if duration else None
+                    duration=int(duration) if duration else None,
+                    read_timeout=120,
+                    write_timeout=120
                 )
             elif format_type == "mp3":
                 await query.message.reply_audio(
@@ -390,7 +392,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     title=title,
                     performer=uploader,
                     duration=int(duration) if duration else None,
-                    caption="🎵 Đã tách âm thanh MP3."
+                    caption="🎵 Đã tách âm thanh MP3.",
+                    read_timeout=120,
+                    write_timeout=120
                 )
             elif format_type == "m4a":
                 await query.message.reply_audio(
@@ -398,7 +402,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     title=title,
                     performer=uploader,
                     duration=int(duration) if duration else None,
-                    caption="🎧 Nhạc M4A chất lượng cao."
+                    caption="🎧 Nhạc M4A chất lượng cao.",
+                    read_timeout=120,
+                    write_timeout=120
                 )
             elif format_type == "ringtone":
                 await query.message.reply_document(
@@ -407,7 +413,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     caption=(
                         "🍎 Nhạc chuông iPhone 30 giây đã sẵn sàng.\n"
                         "Tải file về rồi mở bằng ứng dụng Tệp hoặc GarageBand."
-                    )
+                    ),
+                    read_timeout=120,
+                    write_timeout=120
                 )
 
         await status.delete()
@@ -419,7 +427,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await status.edit_text(f"❌ Không tải được {display_name}. Hãy thử lại sau.")
     except Exception as e:
         logger.exception("Conversion/Upload error: %s", e)
-        await status.edit_text(f"❌ Không tải được {display_name}.")
+        await status.edit_text(f"❌ Không tải được {display_name}. Lỗi: {str(e)[:50]}")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
